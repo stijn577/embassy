@@ -7,8 +7,9 @@ use core::task::{Context, Poll};
 
 use embassy_hal_internal::{impl_peripheral, into_ref};
 use embassy_sync::waitqueue::AtomicWaker;
+use embedded_hal_async::digital::Wait;
 
-use crate::gpio::{AnyPin, Input, Level, Pin as GpioPin, Pull};
+use crate::gpio::{AnyPin, Flex, Input, Level, Pin as GpioPin, Pull};
 use crate::pac::exti::regs::Lines;
 use crate::pac::EXTI;
 use crate::{interrupt, pac, peripherals, Peripheral};
@@ -200,6 +201,97 @@ impl<'d> embedded_hal_1::digital::InputPin for ExtiInput<'d> {
 }
 
 impl<'d> embedded_hal_async::digital::Wait for ExtiInput<'d> {
+    async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_high().await;
+        Ok(())
+    }
+
+    async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_low().await;
+        Ok(())
+    }
+
+    async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_rising_edge().await;
+        Ok(())
+    }
+
+    async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_falling_edge().await;
+        Ok(())
+    }
+
+    async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_any_edge().await;
+        Ok(())
+    }
+}
+
+pub struct ExtiFlex<'d> {
+    pub(crate) pin: Flex<'d>,
+}
+
+impl<'d> embedded_hal_1::digital::ErrorType for ExtiFlex<'d> {
+    type Error = Infallible;
+}
+
+impl<'d> ExtiFlex<'d> {
+    /// Create an EXTI input.
+    pub fn new<T: GpioPin>(pin: impl Peripheral<P = T> + 'd, ch: impl Peripheral<P = T::ExtiChannel> + 'd) -> Self {
+        into_ref!(pin, ch);
+
+        // Needed if using AnyPin+AnyChannel.
+        assert_eq!(pin.pin(), ch.number());
+
+        Self { pin: Flex::new(pin) }
+    }
+}
+
+impl<'d> core::ops::Deref for ExtiFlex<'d> {
+    type Target = Flex<'d>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.pin
+    }
+}
+
+impl<'d> core::ops::DerefMut for ExtiFlex<'d> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.pin
+    }
+}
+
+impl<'d> ExtiFlex<'d> {
+    pub async fn wait_for_high(&mut self) {
+        let fut = ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), true, false);
+        if self.is_high() {
+            return;
+        }
+        fut.await
+    }
+
+    pub async fn wait_for_low(&mut self) {
+        let fut = ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), false, true);
+        if self.is_low() {
+            return;
+        }
+        fut.await
+    }
+
+    pub async fn wait_for_rising_edge(&mut self) {
+        ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), true, false).await
+    }
+
+    pub async fn wait_for_falling_edge(&mut self) {
+        ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), false, true).await
+    }
+
+    pub async fn wait_for_any_edge(&mut self) {
+        ExtiInputFuture::new(self.pin.pin.pin(), self.pin.pin.port(), true, true).await
+    }
+}
+
+impl<'d> embedded_hal_async::digital::Wait for ExtiFlex<'d> {
     async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
         self.wait_for_high().await;
         Ok(())
